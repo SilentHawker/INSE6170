@@ -2,6 +2,7 @@
 Repo for the Project
 
 Getting Started: How to Run the IoT Router Management Software
+
 Prerequisites:
 Windows OS (Recommended: Windows 10 or later)
 Python 3.10 or later installed (Download Python)
@@ -10,6 +11,7 @@ Administrative privileges (required for firewall features)
 
 **Step 1: Clone the Repository**
 Open Command Prompt or PowerShell and clone this repo clearly:
+
 git clone <your-repository-url>
 cd <repository-name>
 
