@@ -24,7 +24,7 @@ class RedirectOutput:
 class IoTRouterApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("IoT Router Manager")
+        self.root.title("IoT Sentinel")
         self.root.geometry("1000x800")
         
         # Initialize managers
