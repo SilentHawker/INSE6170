@@ -9,7 +9,7 @@ class PacketCaptureManager:
     def __init__(self):
         self.captures_dir = "captures"
         self.active_captures = {}
-        self.interface = "Local Area Connection* 2"  # Your specific interface
+        self.interface = "Wi-Fi"  # Your specific interface
         os.makedirs(self.captures_dir, exist_ok=True)
         
         # Configure Scapy to use your interface
