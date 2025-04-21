@@ -1,14 +1,15 @@
 import tkinter as tk
-from monitor import get_connected_devices
-from capture import capture_packets
+from tkinter import ttk, messagebox
+from capture import PacketCaptureManager
+from network_scanner import get_connected_devices
 from firewall import block_ip, unblock_ip
-from ips import monitor_device
-from logger import load_logs
-import matplotlib.pyplot as plt
 import threading
 import sys
+import time
+from datetime import datetime
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-# Redirect print statements to GUI
 class RedirectOutput:
     def __init__(self, text_widget):
         self.text_widget = text_widget
@@ -20,116 +21,237 @@ class RedirectOutput:
     def flush(self):
         pass
 
-def refresh_devices():
-    devices_list.delete(0, tk.END)
-    devices = get_connected_devices()
-    for device in devices:
-        devices_list.insert(tk.END, f"{device['IPv4']} | {device['MAC']} | {device['Vendor']}")
-
-def capture_selected():
-    selection = devices_list.curselection()
-    if not selection:
-        print("Please select a device first!")
-        return
-    device_info = devices_list.get(selection[0])
-    device_ip = device_info.split("|")[0].strip()
-    filename = f"capture_{device_ip.replace('.', '_')}.pcap"
-
-    threading.Thread(target=lambda: capture_packets(device_ip, filename, 50, 10), daemon=True).start()
-
-def block_selected_ip():
-    selection = devices_list.curselection()
-    if not selection:
-        print("Please select a device first!")
-        return
-    device_info = devices_list.get(selection[0])
-    device_ip = device_info.split("|")[0].strip()
-    block_ip(device_ip)
-
-def unblock_selected_ip():
-    selection = devices_list.curselection()
-    if not selection:
-        print("Please select a device first!")
-        return
-    device_info = devices_list.get(selection[0])
-    device_ip = device_info.split("|")[0].strip()
-    unblock_ip(device_ip)
-
-def ips_monitor_selected():
-    selection = devices_list.curselection()
-    if not selection:
-        print("Select a device first!")
-        return
-    device_info = devices_list.get(selection[0])
-    device_ip = device_info.split("|")[0].strip()
-
-    threading.Thread(target=lambda: monitor_device(device_ip, threshold=50, duration=10, alert_callback=gui_alert), daemon=True).start()
-
-def gui_alert(message):
-    output_console.insert(tk.END, message + "\n")
-
-def show_history():
-    selection = devices_list.curselection()
-    if not selection:
-        print("Please select a device first!\n")
-        return
-    device_info = devices_list.get(selection[0])
-    device_ip = device_info.split("|")[0].strip()
-
-    records = load_logs(device_ip)
-    if not records:
-        print("No historical data available for this device.\n")
-        return
-
-    packet_counts = [record['packet_count'] for record in records]
-
-    plt.figure(figsize=(8,4))
-    plt.plot(packet_counts, marker='o')
-    plt.title(f'Data Rate History for {device_ip}')
-    plt.xlabel('Measurement #')
-    plt.ylabel('Packet Count')
-    plt.grid(True)
-    plt.show()
-
+class IoTRouterApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("IoT Router Manager")
+        self.root.geometry("1000x800")
+        
+        # Initialize managers
+        self.capture_manager = PacketCaptureManager()
+        
+        # Setup UI
+        self.setup_ui()
+        
+        # Initial device refresh
+        self.refresh_devices()
+        
+        # Start periodic refresh
+        self.auto_refresh()
+        
+        # Cleanup on exit
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
     
-window = tk.Tk()
-window.title("IoT Router Manager")
+    def setup_ui(self):
+        # Main container
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Device list section
+        device_frame = ttk.LabelFrame(main_frame, text="Connected IoT Devices", padding="10")
+        device_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        
+        # Treeview for devices
+        self.device_tree = ttk.Treeview(device_frame, columns=('IP', 'MAC', 'Vendor', 'Name'), show='headings')
+        self.device_tree.heading('IP', text='IP Address')
+        self.device_tree.heading('MAC', text='MAC Address')
+        self.device_tree.heading('Vendor', text='Vendor')
+        self.device_tree.heading('Name', text='Device Name')
+        
+        # Add scrollbar
+        scrollbar = ttk.Scrollbar(device_frame, orient=tk.VERTICAL, command=self.device_tree.yview)
+        self.device_tree.configure(yscrollcommand=scrollbar.set)
+        self.device_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Button panel
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(fill=tk.X, pady=5)
+        
+        # Action buttons
+        buttons = [
+            ("Refresh", self.refresh_devices),
+            ("Capture", self.capture_selected),
+            ("Stop Capture", self.stop_capture),
+            ("Block", self.block_selected_ip),
+            ("Unblock", self.unblock_selected_ip),
+            ("History", self.show_history)
+        ]
+        
+        for text, command in buttons:
+            ttk.Button(button_frame, text=text, command=command).pack(side=tk.LEFT, padx=5)
 
-devices_list = tk.Listbox(window, width=80, height=12)
-devices_list.pack(padx=10, pady=5)
+        # Console output
+        console_frame = ttk.LabelFrame(main_frame, text="System Console", padding="10")
+        console_frame.pack(fill=tk.BOTH, expand=True)
+        
+        self.console = tk.Text(console_frame, height=10, wrap=tk.WORD, bg='black', fg='white')
+        scrollbar = ttk.Scrollbar(console_frame, command=self.console.yview)
+        self.console.configure(yscrollcommand=scrollbar.set)
+        self.console.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Redirect stdout to console
+        sys.stdout = RedirectOutput(self.console)
+        sys.stderr = RedirectOutput(self.console)
+    
+    def refresh_devices(self):
+        """Refresh the list of connected devices"""
+        self.device_tree.delete(*self.device_tree.get_children())
+        devices = get_connected_devices()
+        
+        for device in devices:
+            self.device_tree.insert('', tk.END, values=(
+                device['IPv4'],
+                device['MAC'],
+                device['Vendor'],
+                f"Device-{device['MAC'][-6:]}"
+            ))
+        
+        print(f"Device list refreshed - {len(devices)} devices found")
+    
+    def capture_selected(self):
+        """Start packet capture for selected device"""
+        selection = self.device_tree.selection()
+        if not selection:
+            print("Please select a device first!")
+            return
+        
+        item = self.device_tree.item(selection[0])
+        values = item['values']
+        
+        device = {
+            'ipv4': values[0],
+            'mac': values[1],
+            'name': values[3],
+            'vendor': values[2]
+        }
+        
+        result = self.capture_manager.start_capture(
+            device,
+            packet_count=50,
+            duration=10
+        )
+        
+        if result['success']:
+            print(result['message'])
+            threading.Thread(
+                target=self.monitor_capture,
+                args=(device['mac'],),
+                daemon=True
+            ).start()
+        else:
+            print(f"Error: {result['error']}")
 
-# Buttons frame
-buttons_frame = tk.Frame(window)
-buttons_frame.pack(pady=5)
+    def monitor_capture(self, mac):
+        """Monitor and display capture progress"""
+        try:
+            while self.capture_manager.is_capturing(mac):
+                status = self.capture_manager.get_capture_status(mac)
+                if status:
+                    target = status.get('target_count', "∞")
+                    msg = (f"Capturing {status['device']} - "
+                          f"{status['packet_count']}/{target} packets | "
+                          f"Elapsed: {status['elapsed_time']:.1f}s")
+                    print(msg)
+                time.sleep(1)
+            
+            print("Capture completed")
+        except Exception as e:
+            print(f"Monitoring error: {str(e)}")
+    
+    def stop_capture(self):
+        """Stop active capture"""
+        selection = self.device_tree.selection()
+        if not selection:
+            print("Please select a device first!")
+            return
+        
+        item = self.device_tree.item(selection[0])
+        mac = item['values'][1]
+        
+        result = self.capture_manager.stop_capture(mac)
+        if result['success']:
+            print(f"{result['message']} - Saved {result['packet_count']} packets")
+        else:
+            print(result['error'])
+    
+    def block_selected_ip(self):
+        """Block selected device's IP"""
+        selection = self.device_tree.selection()
+        if not selection:
+            print("Please select a device first!")
+            return
+        
+        item = self.device_tree.item(selection[0])
+        device_ip = item['values'][0]
+        block_ip(device_ip)
+        print(f"Blocked IP {device_ip}")
+    
+    def unblock_selected_ip(self):
+        """Unblock selected device's IP"""
+        selection = self.device_tree.selection()
+        if not selection:
+            print("Please select a device first!")
+            return
+        
+        item = self.device_tree.item(selection[0])
+        device_ip = item['values'][0]
+        unblock_ip(device_ip)
+        print(f"Unblocked IP {device_ip}")
+    
+    def show_history(self):
+        """Show traffic history for selected device"""
+        selection = self.device_tree.selection()
+        if not selection:
+            print("Please select a device first!")
+            return
+        
+        item = self.device_tree.item(selection[0])
+        device_ip = item['values'][0]
+        
+        # Placeholder visualization
+        fig = plt.figure(figsize=(8, 4))
+        ax = fig.add_subplot(111)
+        
+        # Sample data
+        days = list(range(1, 8))
+        traffic = [100, 150, 200, 180, 250, 300, 220]
+        
+        ax.plot(days, traffic, marker='o')
+        ax.set_title(f'Traffic History for {device_ip}')
+        ax.set_xlabel('Day')
+        ax.set_ylabel('Packet Count')
+        ax.grid(True)
+        
+        # Display in Tkinter window
+        history_win = tk.Toplevel(self.root)
+        history_win.title(f"Traffic History - {device_ip}")
+        
+        canvas = FigureCanvasTkAgg(fig, master=history_win)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+    
+    def auto_refresh(self):
+        """Auto-refresh devices periodically"""
+        self.refresh_devices()
+        self.root.after(30000, self.auto_refresh)
+    
+    def on_closing(self):
+        """Handle application shutdown"""
+        print("Stopping all active captures...")
+        results = self.capture_manager.stop_all_captures()
+        for mac, result in results.items():
+            if result['success']:
+                print(f"Saved {result['packet_count']} packets for {mac}")
+        self.root.destroy()
 
-refresh_button = tk.Button(buttons_frame, text="Refresh Devices", command=refresh_devices)
-refresh_button.pack(side=tk.LEFT, padx=5)
-
-capture_button = tk.Button(buttons_frame, text="Capture Packets", command=capture_selected)
-capture_button.pack(side=tk.LEFT, padx=5)
-
-block_ip_button = tk.Button(buttons_frame, text="Block Selected IP", command=block_selected_ip)
-block_button = tk.Button(buttons_frame, text="Block Selected IP", command=block_selected_ip)
-capture_button.pack(side=tk.LEFT, padx=5)
-block_button = tk.Button(buttons_frame, text="Block Selected IP", command=block_selected_ip)
-block_button.pack(side=tk.LEFT, padx=5)
-
-unblock_button = tk.Button(buttons_frame, text="Unblock Selected IP", command=unblock_selected_ip)
-unblock_button.pack(side=tk.LEFT, padx=5)
-
-ips_button = tk.Button(buttons_frame, text="IPS Monitor Device", command=ips_monitor_selected)
-ips_button.pack(side=tk.LEFT, padx=5)
-
-history_button = tk.Button(buttons_frame, text="Show Traffic History", command=show_history)
-history_button.pack(side=tk.LEFT, padx=5)
-
-
-# Output console
-output_console = tk.Text(window, height=10, width=80, bg='black', fg='white')
-output_console.pack(padx=10, pady=5)
-sys.stdout = RedirectOutput(output_console)
-
-refresh_devices()  # initial load
-window.mainloop()
-
-
+if __name__ == "__main__":
+    try:
+        root = tk.Tk()
+        app = IoTRouterApp(root)
+        root.mainloop()
+    except Exception as e:
+        print(f"Fatal error: {str(e)}")
+        if 'root' in locals():
+            root.destroy() 
