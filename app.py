@@ -240,10 +240,18 @@ class IoTRouterApp:
     def on_closing(self):
         """Handle application shutdown"""
         print("Stopping all active captures...")
-        results = self.capture_manager.stop_all_captures()
-        for mac, result in results.items():
+        
+        # Access the active_captures attribute directly
+        active_captures = self.capture_manager.active_captures
+        
+        for mac in active_captures:
+            result = self.capture_manager.stop_capture(mac)
             if result['success']:
                 print(f"Saved {result['packet_count']} packets for {mac}")
+            else:
+                print(f"Error stopping capture for {mac}: {result.get('error', 'Unknown error')}")
+        
+        print("All captures stopped. Closing application.")
         self.root.destroy()
 
 if __name__ == "__main__":
