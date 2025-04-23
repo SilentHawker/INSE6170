@@ -2,9 +2,10 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from capture import PacketCaptureManager
 from network_scanner import get_connected_devices
-from firewall import block_ip, unblock_ip
 import threading
 import sys
+from firewall import block_ip, unblock_ip, block_port, unblock_port, block_ip_range, block_protocol, save_firewall_rules
+import platform
 import time
 from datetime import datetime
 import matplotlib.pyplot as plt
@@ -22,6 +23,46 @@ class RedirectOutput:
         pass
 
 class IoTRouterApp:
+    def block_port_from_ui(self):
+        port = self.port_entry.get()
+        protocol = self.protocol_var.get()
+        if port.isdigit():
+            block_port(port, protocol)
+            print(f"Blocked {protocol} port {port}")
+        else:
+            print("Invalid port number")
+
+    def unblock_port_from_ui(self):
+        port = self.port_entry.get()
+        protocol = self.protocol_var.get()
+        if port.isdigit():
+            unblock_port(port, protocol)
+            print(f"Unblocked {protocol} port {port}")
+        else:
+            print("Invalid port number")
+
+    def block_ip_range_from_ui(self):
+        ip_range = self.ip_range_entry.get()
+        if ip_range:
+            if block_ip_range(ip_range):
+                print(f"Successfully blocked IP range {ip_range}")
+            else:
+                print(f"Failed to block IP range {ip_range}")
+
+    def block_protocol_from_ui(self):
+        protocol = self.protocol_entry.get().upper()
+        if protocol:
+            if block_protocol(protocol):
+                print(f"Successfully blocked protocol {protocol}")
+            else:
+                print(f"Failed to block protocol {protocol}")
+
+    def save_firewall_rules_from_ui(self):
+        if save_firewall_rules():
+            print("Firewall rules saved permanently")
+        else:
+            print("Failed to save firewall rules")
+
     def __init__(self, root):
         self.root = root
         self.root.title("IoT Sentinel")
@@ -29,7 +70,6 @@ class IoTRouterApp:
         
         # Initialize managers
         self.capture_manager = PacketCaptureManager()
-        
         # Setup UI
         self.setup_ui()
         
@@ -77,9 +117,48 @@ class IoTRouterApp:
             ("Unblock", self.unblock_selected_ip),
             ("History", self.show_history)
         ]
-        
+
         for text, command in buttons:
             ttk.Button(button_frame, text=text, command=command).pack(side=tk.LEFT, padx=5)
+
+        # --- Firewall Port Controls ---
+        port_frame = ttk.LabelFrame(main_frame, text="Firewall Port Control", padding="10")
+        port_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Label(port_frame, text="Port:").pack(side=tk.LEFT, padx=5)
+        self.port_entry = ttk.Entry(port_frame, width=10)
+        self.port_entry.pack(side=tk.LEFT)
+
+        ttk.Label(port_frame, text="Protocol:").pack(side=tk.LEFT, padx=5)
+        self.protocol_var = tk.StringVar(value="BOTH")  # Default to block both
+        protocol_menu = ttk.OptionMenu(port_frame, self.protocol_var, "BOTH", "TCP", "UDP", "BOTH")
+        protocol_menu.pack(side=tk.LEFT)
+
+        ttk.Button(port_frame, text="Block Port", command=self.block_port_from_ui).pack(side=tk.LEFT, padx=5)
+        ttk.Button(port_frame, text="Unblock Port", command=self.unblock_port_from_ui).pack(side=tk.LEFT, padx=5)
+
+        # --- Advanced Firewall Controls ---
+        advanced_frame = ttk.LabelFrame(main_frame, text="Advanced Firewall", padding="10")
+        advanced_frame.pack(fill=tk.X, pady=5)
+
+        # IP Range blocking
+        ttk.Label(advanced_frame, text="IP Range:").pack(side=tk.LEFT, padx=5)
+        self.ip_range_entry = ttk.Entry(advanced_frame, width=20)
+        self.ip_range_entry.pack(side=tk.LEFT)
+        ttk.Button(advanced_frame, text="Block Range", 
+                  command=self.block_ip_range_from_ui).pack(side=tk.LEFT, padx=5)
+
+        # Protocol blocking
+        ttk.Label(advanced_frame, text="Protocol:").pack(side=tk.LEFT, padx=5)
+        self.protocol_entry = ttk.Entry(advanced_frame, width=10)
+        self.protocol_entry.pack(side=tk.LEFT)
+        ttk.Button(advanced_frame, text="Block Protocol", 
+                  command=self.block_protocol_from_ui).pack(side=tk.LEFT, padx=5)
+
+        # Save rules button (Linux only)
+        if platform.system() == "Linux":
+            ttk.Button(advanced_frame, text="Save Rules", 
+                      command=self.save_firewall_rules_from_ui).pack(side=tk.LEFT, padx=5)
 
         # Console output
         console_frame = ttk.LabelFrame(main_frame, text="System Console", padding="10")
@@ -262,4 +341,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Fatal error: {str(e)}")
         if 'root' in locals():
-            root.destroy() 
+            root.destroy()
