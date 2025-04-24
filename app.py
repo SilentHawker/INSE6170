@@ -119,7 +119,6 @@ class IoTRouterApp:
             ("Stop Capture", self.stop_capture),
             ("Block", self.block_selected_ip),
             ("Unblock", self.unblock_selected_ip),
-            ("History", self.show_history)
         ]
 
         for text, command in buttons:
