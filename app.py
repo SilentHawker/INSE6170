@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from capture import PacketCaptureManager
 from network_scanner import get_connected_devices
+from logger import load_logs
 import threading
 import sys
 from firewall import block_ip, unblock_ip, block_port, unblock_port, block_ip_range, block_protocol, save_firewall_rules
@@ -288,25 +289,28 @@ class IoTRouterApp:
         
         item = self.device_tree.item(selection[0])
         device_ip = item['values'][0]
-        
-        # Placeholder visualization
+
+        # Load historical logs for the selected device
+        records = load_logs(device_ip)
+        if not records:
+            print("No historical data available for this device.")
+            return
+
+        # Extract packet counts from the records
+        packet_counts = [record['packet_count'] for record in records]
+
+        # Plot the data rate history
         fig = plt.figure(figsize=(8, 4))
         ax = fig.add_subplot(111)
-        
-        # Sample data
-        days = list(range(1, 8))
-        traffic = [100, 150, 200, 180, 250, 300, 220]
-        
-        ax.plot(days, traffic, marker='o')
+        ax.plot(packet_counts, marker='o')
         ax.set_title(f'Traffic History for {device_ip}')
-        ax.set_xlabel('Day')
+        ax.set_xlabel('Measurement #')
         ax.set_ylabel('Packet Count')
         ax.grid(True)
-        
+
         # Display in Tkinter window
         history_win = tk.Toplevel(self.root)
         history_win.title(f"Traffic History - {device_ip}")
-        
         canvas = FigureCanvasTkAgg(fig, master=history_win)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
