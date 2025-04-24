@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from capture import PacketCaptureManager
 from network_scanner import get_connected_devices
-from logger import load_logs
+from logger import load_logs, cleanup_logs, delete_logs
 import threading
 import sys
 from firewall import block_ip, unblock_ip, block_port, unblock_port, block_ip_range, block_protocol, save_firewall_rules
@@ -68,18 +68,21 @@ class IoTRouterApp:
         self.root = root
         self.root.title("IoT Sentinel")
         self.root.geometry("1000x800")
-        
+
+        # Cleanup outdated logs (e.g., older than 30 days)
+        cleanup_logs(days=30)
+
         # Initialize managers
         self.capture_manager = PacketCaptureManager()
         # Setup UI
         self.setup_ui()
-        
+
         # Initial device refresh
         self.refresh_devices()
-        
+
         # Start periodic refresh
         self.auto_refresh()
-        
+
         # Cleanup on exit
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
     
@@ -174,6 +177,22 @@ class IoTRouterApp:
         # Redirect stdout to console
         sys.stdout = RedirectOutput(self.console)
         sys.stderr = RedirectOutput(self.console)
+
+        # Add buttons for log management
+        log_frame = ttk.LabelFrame(main_frame, text="Log Management", padding="10")
+        log_frame.pack(fill=tk.X, pady=5)
+
+        ttk.Button(log_frame, text="Delete Selected Device Logs", command=self.delete_selected_logs).pack(side=tk.LEFT, padx=5)
+        ttk.Button(log_frame, text="Delete All Logs", command=self.delete_all_logs).pack(side=tk.LEFT, padx=5)
+
+        # Add input field for number of days
+        ttk.Label(log_frame, text="Days:").pack(side=tk.LEFT, padx=5)
+        self.days_entry = ttk.Entry(log_frame, width=5)
+        self.days_entry.insert(0, "30")  # Default to 30 days
+        self.days_entry.pack(side=tk.LEFT, padx=5)
+
+        # Add History button next to Days selector
+        ttk.Button(log_frame, text="History", command=self.show_history).pack(side=tk.LEFT, padx=5)
     
     def refresh_devices(self):
         """Refresh the list of connected devices"""
@@ -290,10 +309,17 @@ class IoTRouterApp:
         item = self.device_tree.item(selection[0])
         device_ip = item['values'][0]
 
+        # Get the number of days from the input field
+        try:
+            days = int(self.days_entry.get())
+        except ValueError:
+            print("Invalid number of days. Please enter a valid integer.")
+            return
+
         # Load historical logs for the selected device
-        records = load_logs(device_ip)
+        records = load_logs(device_ip, days=days)
         if not records:
-            print("No historical data available for this device.")
+            print(f"No historical data available for this device in the last {days} days.")
             return
 
         # Extract packet counts from the records
@@ -303,7 +329,7 @@ class IoTRouterApp:
         fig = plt.figure(figsize=(8, 4))
         ax = fig.add_subplot(111)
         ax.plot(packet_counts, marker='o')
-        ax.set_title(f'Traffic History for {device_ip}')
+        ax.set_title(f'Traffic History for {device_ip} (Last {days} Days)')
         ax.set_xlabel('Measurement #')
         ax.set_ylabel('Packet Count')
         ax.grid(True)
@@ -336,6 +362,21 @@ class IoTRouterApp:
         
         print("All captures stopped. Closing application.")
         self.root.destroy()
+
+    def delete_selected_logs(self):
+        """Delete logs for the selected device."""
+        selection = self.device_tree.selection()
+        if not selection:
+            print("Please select a device first!")
+            return
+
+        item = self.device_tree.item(selection[0])
+        device_ip = item['values'][0]
+        delete_logs(device_ip)
+
+    def delete_all_logs(self):
+        """Delete all logs."""
+        delete_logs()
 
 if __name__ == "__main__":
     try:
