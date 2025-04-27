@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from meta import get_device_metadata, set_device_metadata
 
 class RedirectOutput:
     def __init__(self, text_widget):
@@ -119,6 +120,7 @@ class IoTRouterApp:
             ("Stop Capture", self.stop_capture),
             ("Block", self.block_selected_ip),
             ("Unblock", self.unblock_selected_ip),
+            ("Edit Metadata", self.edit_selected_metadata),  # Added Edit Metadata button
         ]
 
         for text, command in buttons:
@@ -199,11 +201,16 @@ class IoTRouterApp:
         devices = get_connected_devices()
         
         for device in devices:
+            # Retrieve metadata for the device
+            metadata = get_device_metadata(device['MAC'])
+            custom_name = metadata.get('name', f"Device-{device['MAC'][-6:]}")
+            
+            # Insert device into the treeview
             self.device_tree.insert('', tk.END, values=(
                 device['IPv4'],
                 device['MAC'],
                 device['Vendor'],
-                f"Device-{device['MAC'][-6:]}"
+                custom_name
             ))
         
         print(f"Device list refreshed - {len(devices)} devices found")
@@ -376,6 +383,39 @@ class IoTRouterApp:
     def delete_all_logs(self):
         """Delete all logs."""
         delete_logs()
+
+    def edit_selected_metadata(self):
+        """Edit metadata for the selected device."""
+        selection = self.device_tree.selection()
+        if not selection:
+            print("Please select a device first!")
+            return
+
+        item = self.device_tree.item(selection[0])
+        mac = item['values'][1]  # MAC address
+
+        # Load existing metadata
+        existing = get_device_metadata(mac)
+        popup = tk.Toplevel(self.root)
+        popup.title(f"Edit Metadata for {mac}")
+
+        fields = ['name', 'vendor', 'model', 'version', 'description']
+        entries = {}
+
+        for i, field in enumerate(fields):
+            ttk.Label(popup, text=field.capitalize() + ":").grid(row=i, column=0, sticky='w', padx=10, pady=5)
+            entry = ttk.Entry(popup, width=40)
+            entry.grid(row=i, column=1, padx=10)
+            entry.insert(0, existing.get(field, ''))
+            entries[field] = entry
+
+        def save():
+            metadata = {field: entry.get() for field, entry in entries.items()}
+            set_device_metadata(mac, metadata)
+            print(f"Metadata saved for {mac}")
+            popup.destroy()
+
+        ttk.Button(popup, text="Save", command=save).grid(row=len(fields), column=0, columnspan=2, pady=10)
 
 if __name__ == "__main__":
     try:
