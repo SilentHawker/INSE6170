@@ -2,6 +2,7 @@ import os
 import platform
 
 def block_ip(ip):
+    """Block a specific IP address."""
     system = platform.system()
     if system == "Windows":
         rule_name = f"Block_IP_{ip}"
@@ -17,10 +18,15 @@ def block_ip(ip):
     else:  # Linux
         cmd = f'sudo iptables -A INPUT -s {ip} -j DROP'
         result = os.system(cmd)
-        return result == 0
+        if result == 0:
+            print(f"[Firewall] Successfully blocked IP {ip}")
+            return True
+        else:
+            print(f"[Firewall] Failed to block IP {ip}")
+            return False
 
 def unblock_ip(ip):
-    """Unblock a specific IP address"""
+    """Unblock a specific IP address."""
     system = platform.system()
     if system == "Windows":
         rule_name = f"Block_IP_{ip}"
@@ -36,20 +42,21 @@ def unblock_ip(ip):
         print(f"[Firewall] No rule found for IP {ip}")
         return False
 
-def block_port(port, protocol="BOTH"):  # Changed default to "BOTH"
+def block_port(port, protocol="BOTH"):
+    """Block a specific port using the system's firewall."""
     system = platform.system()
     if system == "Windows":
         # Block TCP
         if protocol in ("TCP", "BOTH"):
-            tcp_rule = f'Block_TCP_{port}'
+            tcp_rule = f"Block_TCP_{port}"
             os.system(f'netsh advfirewall firewall delete rule name="{tcp_rule}"')
-            os.system(f'netsh advfirewall firewall add rule name="{tcp_rule}" dir=in action=block protocol=TCP localport={port} remoteip=any')
+            os.system(f'netsh advfirewall firewall add rule name="{tcp_rule}" dir=in action=block protocol=TCP localport={port}')
         
-        # Block UDP (for QUIC/HTTP3)
+        # Block UDP
         if protocol in ("UDP", "BOTH"):
-            udp_rule = f'Block_UDP_{port}'
+            udp_rule = f"Block_UDP_{port}"
             os.system(f'netsh advfirewall firewall delete rule name="{udp_rule}"')
-            os.system(f'netsh advfirewall firewall add rule name="{udp_rule}" dir=in action=block protocol=UDP localport={port} remoteip=any')
+            os.system(f'netsh advfirewall firewall add rule name="{udp_rule}" dir=in action=block protocol=UDP localport={port}')
         
         print(f"[Firewall] Blocked {protocol} port {port}")
         return True
@@ -58,25 +65,31 @@ def block_port(port, protocol="BOTH"):  # Changed default to "BOTH"
             os.system(f'sudo iptables -A INPUT -p tcp --dport {port} -j DROP')
         if protocol in ("UDP", "BOTH"):
             os.system(f'sudo iptables -A INPUT -p udp --dport {port} -j DROP')
+        print(f"[Firewall] Blocked {protocol} port {port}")
         return True
 
-def unblock_port(port, protocol="TCP"):
+def unblock_port(port, protocol="BOTH"):
+    """Unblock a specific port using the system's firewall."""
     system = platform.system()
     if system == "Windows":
-        rule_name = f"Block_Port_{protocol}_{port}"
-        cmd = f'netsh advfirewall firewall delete rule name="{rule_name}"'
-        result = os.system(cmd)
-        if result == 0:
-            print(f"[Firewall] Removed block on {protocol} port {port}")
-            return True
-        else:
-            print(f"[Firewall] No existing block found for {protocol} port {port}")
-            return False
-    else:  # Linux version
-        cmd = f'sudo iptables -D INPUT -p {protocol.lower()} --dport {port} -j DROP'
-        return os.system(cmd) == 0
+        if protocol in ("TCP", "BOTH"):
+            tcp_rule = f"Block_TCP_{port}"
+            os.system(f'netsh advfirewall firewall delete rule name="{tcp_rule}"')
+        if protocol in ("UDP", "BOTH"):
+            udp_rule = f"Block_UDP_{port}"
+            os.system(f'netsh advfirewall firewall delete rule name="{udp_rule}"')
+        print(f"[Firewall] Unblocked {protocol} port {port}")
+        return True
+    else:  # Linux
+        if protocol in ("TCP", "BOTH"):
+            os.system(f'sudo iptables -D INPUT -p tcp --dport {port} -j DROP')
+        if protocol in ("UDP", "BOTH"):
+            os.system(f'sudo iptables -D INPUT -p udp --dport {port} -j DROP')
+        print(f"[Firewall] Unblocked {protocol} port {port}")
+        return True
+
 def block_ip_range(ip_range):
-    """Block a range of IP addresses (e.g., 192.168.1.0/24)"""
+    """Block a range of IP addresses (e.g., 192.168.1.0/24)."""
     system = platform.system()
     if system == "Windows":
         rule_name = f"Block_IP_Range_{ip_range.replace('/', '_')}"
@@ -93,7 +106,7 @@ def block_ip_range(ip_range):
         return False
 
 def block_protocol(protocol):
-    """Block a specific protocol (e.g., ICMP)"""
+    """Block a specific protocol (e.g., ICMP)."""
     system = platform.system()
     if system == "Windows":
         rule_name = f"Block_Protocol_{protocol}"
@@ -110,7 +123,7 @@ def block_protocol(protocol):
         return False
 
 def save_firewall_rules():
-    """Save firewall rules permanently (Linux only)"""
+    """Save firewall rules permanently (Linux only)."""
     if platform.system() != "Linux":
         print("[Firewall] Rule saving only available on Linux")
         return False
@@ -124,7 +137,7 @@ def save_firewall_rules():
         return False
 
 def list_firewall_rules():
-    """List all firewall rules"""
+    """List all firewall rules."""
     system = platform.system()
     print("[Firewall] Current rules:")
     if system == "Windows":
