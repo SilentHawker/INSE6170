@@ -1,5 +1,6 @@
 from scapy.all import sniff
 import threading
+import time  # Import the time module
 from logger import log_packet_rate
 
 def monitor_device(ip, threshold=100, duration=10, alert_callback=None, stop_event=None):

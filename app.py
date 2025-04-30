@@ -19,8 +19,9 @@ class RedirectOutput:
         self.text_widget = text_widget
 
     def write(self, message):
-        self.text_widget.insert(tk.END, message)
-        self.text_widget.see(tk.END)
+        if message.strip():  # Avoid writing empty lines
+            self.text_widget.insert(tk.END, message + "\n")
+            self.text_widget.see(tk.END)  # Auto-scroll to the bottom
 
     def flush(self):
         pass
@@ -70,6 +71,9 @@ class IoTRouterApp:
         self.root = root
         self.root.title("IoT Sentinel")
         self.root.geometry("1000x800")
+
+        # Initialize IPS threads dictionary
+        self.ips_threads = {}
 
         # Cleanup outdated logs (e.g., older than 30 days)
         cleanup_logs(days=30)
@@ -123,11 +127,12 @@ class IoTRouterApp:
             ("Unblock", self.unblock_selected_ip),
             ("Edit Metadata", self.edit_selected_metadata),
             ("Start IPS", self.start_ips),
-            ("Stop IPS", self.stop_ips),  # Added Stop IPS button
+            ("Stop IPS", self.stop_ips),
         ]
 
         for text, command in buttons:
             ttk.Button(button_frame, text=text, command=command).pack(side=tk.LEFT, padx=5)
+
 
 # --- Firewall Port Controls ---
         port_frame = ttk.LabelFrame(main_frame, text="Firewall Port Control", padding="10")
@@ -178,7 +183,7 @@ class IoTRouterApp:
         self.console.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Redirect stdout to console
+        # Redirect stdout and stderr to the console widget
         sys.stdout = RedirectOutput(self.console)
         sys.stderr = RedirectOutput(self.console)
 
@@ -188,72 +193,7 @@ class IoTRouterApp:
 
         ttk.Button(log_frame, text="Delete Selected Device Logs", command=self.delete_selected_logs).pack(side=tk.LEFT, padx=5)
         ttk.Button(log_frame, text="Delete All Logs", command=self.delete_all_logs).pack(side=tk.LEFT, padx=5)
-
-        # Add input field for number of days
-        ttk.Label(log_frame, text="Days:").pack(side=tk.LEFT, padx=5)
-        self.days_entry = ttk.Entry(log_frame, width=5)
-        self.days_entry.insert(0, "30")  # Default to 30 days
-        self.days_entry.pack(side=tk.LEFT, padx=5)
-
-        # --- Firewall Port Controls ---
-        port_frame = ttk.LabelFrame(main_frame, text="Firewall Port Control", padding="10")
-        port_frame.pack(fill=tk.X, pady=5)
-
-        ttk.Label(port_frame, text="Port:").pack(side=tk.LEFT, padx=5)
-        self.port_entry = ttk.Entry(port_frame, width=10)
-        self.port_entry.pack(side=tk.LEFT)
-
-        ttk.Label(port_frame, text="Protocol:").pack(side=tk.LEFT, padx=5)
-        self.protocol_var = tk.StringVar(value="BOTH")  # Default to block both
-        protocol_menu = ttk.OptionMenu(port_frame, self.protocol_var, "BOTH", "TCP", "UDP", "BOTH")
-        protocol_menu.pack(side=tk.LEFT)
-
-        ttk.Button(port_frame, text="Block Port", command=self.block_port_from_ui).pack(side=tk.LEFT, padx=5)
-        ttk.Button(port_frame, text="Unblock Port", command=self.unblock_port_from_ui).pack(side=tk.LEFT, padx=5)
-
-        # --- Advanced Firewall Controls ---
-        advanced_frame = ttk.LabelFrame(main_frame, text="Advanced Firewall", padding="10")
-        advanced_frame.pack(fill=tk.X, pady=5)
-
-        # IP Range blocking
-        ttk.Label(advanced_frame, text="IP Range:").pack(side=tk.LEFT, padx=5)
-        self.ip_range_entry = ttk.Entry(advanced_frame, width=20)
-        self.ip_range_entry.pack(side=tk.LEFT)
-        ttk.Button(advanced_frame, text="Block Range", 
-                  command=self.block_ip_range_from_ui).pack(side=tk.LEFT, padx=5)
-
-        # Protocol blocking
-        ttk.Label(advanced_frame, text="Protocol:").pack(side=tk.LEFT, padx=5)
-        self.protocol_entry = ttk.Entry(advanced_frame, width=10)
-        self.protocol_entry.pack(side=tk.LEFT)
-        ttk.Button(advanced_frame, text="Block Protocol", 
-                  command=self.block_protocol_from_ui).pack(side=tk.LEFT, padx=5)
-
-        # Save rules button (Linux only)
-        if platform.system() == "Linux":
-            ttk.Button(advanced_frame, text="Save Rules", 
-                      command=self.save_firewall_rules_from_ui).pack(side=tk.LEFT, padx=5)
-
-        # Console output
-        console_frame = ttk.LabelFrame(main_frame, text="System Console", padding="10")
-        console_frame.pack(fill=tk.BOTH, expand=True)
-        
-        self.console = tk.Text(console_frame, height=10, wrap=tk.WORD, bg='black', fg='white')
-        scrollbar = ttk.Scrollbar(console_frame, command=self.console.yview)
-        self.console.configure(yscrollcommand=scrollbar.set)
-        self.console.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Redirect stdout to console
-        sys.stdout = RedirectOutput(self.console)
-        sys.stderr = RedirectOutput(self.console)
-
-        # Add buttons for log management
-        log_frame = ttk.LabelFrame(main_frame, text="Log Management", padding="10")
-        log_frame.pack(fill=tk.X, pady=5)
-
-        ttk.Button(log_frame, text="Delete Selected Device Logs", command=self.delete_selected_logs).pack(side=tk.LEFT, padx=5)
-        ttk.Button(log_frame, text="Delete All Logs", command=self.delete_all_logs).pack(side=tk.LEFT, padx=5)
+        ttk.Button(log_frame, text="Show History", command=self.show_history).pack(side=tk.LEFT, padx=5)  # Added Show History button
 
         # Add input field for number of days
         ttk.Label(log_frame, text="Days:").pack(side=tk.LEFT, padx=5)
@@ -488,6 +428,24 @@ class IoTRouterApp:
             popup.destroy()
 
         ttk.Button(popup, text="Save", command=save).grid(row=len(fields), column=0, columnspan=2, pady=10)
+
+    def stop_ips(self):
+        """Stop IPS monitoring for the selected device."""
+        selection = self.device_tree.selection()
+        if not selection:
+            print("Please select a device first!")
+            return
+
+        item = self.device_tree.item(selection[0])
+        device_ip = item['values'][0]
+
+        if device_ip in self.ips_threads:
+            stop_event = self.ips_threads[device_ip]
+            stop_event.set()  # Signal the thread to stop
+            del self.ips_threads[device_ip]
+            print(f"Stopped IPS monitoring for {device_ip}")
+        else:
+            print(f"No active IPS monitoring for {device_ip}")
 
     def start_ips(self):
         """Start monitoring the selected device for abnormal traffic."""
